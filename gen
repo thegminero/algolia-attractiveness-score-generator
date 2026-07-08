@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Short wrapper for the attractiveness script generator.
+# Usage:
+#   ./gen                                  (interactive prompts)
+#   ./gen --config clients/acme.config.json
+#   ./gen --index my_index --app-id APPID
+exec node "$(dirname "$0")/generator/generate.js" "$@"

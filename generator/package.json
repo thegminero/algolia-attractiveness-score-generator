@@ -1,0 +1,19 @@
+{
+  "name": "attractiveness-script-generator",
+  "version": "1.0.0",
+  "description": "CLI that generates an Algolia-seeded attractiveness scoring transform from filter-click analytics.",
+  "main": "generate.js",
+  "bin": {
+    "generate-transform": "./generate.js",
+    "attract": "./generate.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node generate.js",
+    "generate": "node generate.js"
+  },
+  "keywords": ["algolia", "analytics", "attractiveness", "transform"],
+  "license": "MIT"
+}
