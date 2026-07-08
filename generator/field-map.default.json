@@ -1,5 +1,5 @@
 {
-  "_comment": "GENERIC default record-field paths. Because Algolia is schemaless, only the most universal e-commerce fields (price, compare-at price, availability) get a best-guess default path. Everything else defaults to \"NONE\" (treated as a neutral/absent signal so scoring degrades gracefully instead of guessing a wrong client-specific path). To map the NONE fields for a specific client, run with --field-map <file> --sample-record <records.json> so the discovery pass can suggest the right paths, then set source to \"confirmed\" to lock them.",
+  "_comment": "GENERIC default record-field paths. Because Algolia is schemaless, only the most universal e-commerce fields (price, compare-at price, availability) get a best-guess default path. Everything else defaults to \"NONE\" (treated as a neutral/absent signal so scoring degrades gracefully instead of guessing a wrong index-specific path). To map the NONE fields for a specific index, run with --field-map <file> --sample-record <records.json> so the discovery pass can suggest the right paths, then set source to \"confirmed\" to lock them.",
 
   "price": {
     "path": "price",
@@ -19,47 +19,47 @@
   "inventoryMap": {
     "path": "NONE",
     "source": "default",
-    "description": "Object of { storeId: quantity } for per-store stock counts — client-specific, map via discovery"
+    "description": "Object of { storeId: quantity } for per-store stock counts — index-specific, map via discovery"
   },
   "recentlyOrderedCount": {
     "path": "NONE",
     "source": "default",
-    "description": "Number of recent orders — proxy for demand. Client-specific, map via discovery"
+    "description": "Number of recent orders — proxy for demand. Index-specific, map via discovery"
   },
   "reviewAverage": {
     "path": "NONE",
     "source": "default",
-    "description": "Average star rating (0-5). Client-specific, map via discovery"
+    "description": "Average star rating (0-5). Index-specific, map via discovery"
   },
   "reviewCount": {
     "path": "NONE",
     "source": "default",
-    "description": "Number of reviews. Client-specific, map via discovery"
+    "description": "Number of reviews. Index-specific, map via discovery"
   },
   "collections": {
     "path": "NONE",
     "source": "default",
-    "description": "Array of collection/category names for merch scoring. Client-specific, map via discovery"
+    "description": "Array of collection/category names for merch scoring. Index-specific, map via discovery"
   },
   "waysToShop": {
     "path": "NONE",
     "source": "default",
-    "description": "Array of merchandising tags (e.g. \"best seller\", \"new arrival\"). Client-specific, map via discovery"
+    "description": "Array of merchandising tags (e.g. \"best seller\", \"new arrival\"). Index-specific, map via discovery"
   },
   "promoTags": {
     "path": "NONE",
     "source": "default",
-    "description": "Array/flag of promotional tags (more tags = higher merch score). Client-specific, map via discovery"
+    "description": "Array/flag of promotional tags (more tags = higher merch score). Index-specific, map via discovery"
   },
   "swatchJson": {
     "path": "NONE",
     "source": "default",
-    "description": "JSON array of swatch/variant options — bonus when 3+ present. Client-specific, map via discovery"
+    "description": "JSON array of swatch/variant options — bonus when 3+ present. Index-specific, map via discovery"
   },
   "productType": {
     "path": "NONE",
     "source": "default",
-    "description": "Flat product-type string, one input for category detection. Client-specific, map via discovery"
+    "description": "Flat product-type string, one input for category detection. Index-specific, map via discovery"
   },
   "categoryHayFields": [
     "productType",

@@ -34,7 +34,7 @@
 //                                When provided, the discovery pass runs and
 //                                updates non-confirmed entries in --field-map,
 //                                then prints a summary report for review.
-//                                Pass records from ONE client for best results.
+//                                Pass records from ONE index for best results.
 // ---------------------------------------------------------------------------
 
 "use strict";
@@ -562,7 +562,7 @@ Three easy ways to run it:
 
   2. Config file (put settings in a JSON file once, then reuse):
        ./gen --config groupeld_fr_prod          (alias → groupeld_fr_prod.config.json)
-       ./gen --config clients/acme.config.json  (or a full path)
+       ./gen --config configs/acme.config.json  (or a full path)
      Interactive setup asks for an alias first and saves <alias>.config.json.
      --config accepts the alias, the filename, or a path; it also looks in ./configs.
 
@@ -581,7 +581,7 @@ Options (flags override config file, which overrides env vars, which override de
   --top-facets <n>           How many top facets             (default 10)
   --top-values <n>           Popular values per facet        (default 20)
   --out <dir>                Output directory                (default current dir)
-  --field-map <path>         Per-client field-map JSON file (auto-created with
+  --field-map <path>         Per-index field-map JSON file (auto-created with
                              defaults if missing; see generator/field-map.default.json)
   --sample-record <path>     One record or an array of records (auto-discovery)
   --fetch-samples[=n]        Pull n real records (default 10) from the index via
@@ -708,7 +708,7 @@ function createLineReader() {
 // Adds patterns to the nearest .gitignore, walking up from the config file to
 // find a repo root; otherwise creates one next to the config file.
 function ensureGitignore(configAbsPath) {
-  const patterns = ["*.config.json", ".env", "clients/**/sample-records.json"];
+  const patterns = ["*.config.json", ".env", "indices/**/sample-records.json"];
   try {
     let dir = path.dirname(configAbsPath);
     let repoRoot = null;
@@ -732,17 +732,17 @@ function ensureGitignore(configAbsPath) {
 
 // Slugify an arbitrary string into a filesystem-safe token.
 function slugify(s) {
-  const out = String(s || "client").replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "");
-  return out || "client";
+  const out = String(s || "index").replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "");
+  return out || "index";
 }
 
 function configFileNameFor(name) {
   return `${slugify(name)}.config.json`;
 }
 
-// Per-client working directory, e.g. clients/groupeld_fr_prod
-function clientDirFor(alias) {
-  return path.resolve("clients", slugify(alias));
+// Per-index working directory, e.g. indices/groupeld_fr_prod
+function indexDirFor(alias) {
+  return path.resolve("indices", slugify(alias));
 }
 
 async function runInteractive(opts) {
@@ -769,12 +769,12 @@ async function runInteractive(opts) {
   const alias = await ask("Config alias — short name for this customer/config, e.g. groupeld_fr_prod (a customer may have many indices)", opts._alias || "");
   opts._alias = (alias || "").trim() || null;
 
-  // When an alias is given, keep everything for this client together under
-  // clients/<alias>/ and default the field map + output there automatically.
-  const clientDir = opts._alias ? clientDirFor(opts._alias) : null;
-  if (clientDir) {
-    if (!opts.fieldMap) opts.fieldMap = path.join(clientDir, "field-map.json");
-    opts.out = clientDir;
+  // When an alias is given, keep everything for this index together under
+  // indices/<alias>/ and default the field map + output there automatically.
+  const indexDir = opts._alias ? indexDirFor(opts._alias) : null;
+  if (indexDir) {
+    if (!opts.fieldMap) opts.fieldMap = path.join(indexDir, "field-map.json");
+    opts.out = indexDir;
   }
 
   opts.appId        = await ask("Algolia Application ID", opts.appId);
@@ -788,12 +788,12 @@ async function runInteractive(opts) {
   // The easiest path: let the tool pull a few real records from the index.
   if (opts.appId && opts.apiKey && opts.index && !opts.sampleRecord) {
     console.log("");
-    console.log("  To map this client's fields (price, stock, reviews…), the tool can pull a few");
+    console.log("  To map this index's fields (price, stock, reviews…), the tool can pull a few");
     console.log("  real records straight from the index and auto-suggest the mappings.");
     const doFetch = await askYesNo("Fetch sample records from Algolia now?", true);
     if (doFetch) {
       const n = parseInt(await ask("How many records to fetch", 10), 10) || 10;
-      const targetDir = clientDir || path.resolve(opts.out || process.cwd());
+      const targetDir = indexDir || path.resolve(opts.out || process.cwd());
       try {
         process.stdout.write(`  Fetching ${n} records from "${opts.index}"… `);
         const hits = await fetchSampleRecords(opts.appId, opts.apiKey, opts.index, n);
@@ -823,7 +823,7 @@ async function runInteractive(opts) {
     opts.region       = await ask("Analytics data-center region — 'us' for US-hosted apps, 'de' for EU-hosted", opts.region);
     opts.topFacets    = parseInt(await ask("How many top facets to use", opts.topFacets), 10);
     opts.topValues    = parseInt(await ask("Top values per facet", opts.topValues), 10);
-    opts.fieldMap     = (await ask("Field-map file for this client (blank = none)", opts.fieldMap || "")) || null;
+    opts.fieldMap     = (await ask("Field-map file for this index (blank = none)", opts.fieldMap || "")) || null;
     opts.sampleRecord = (await ask("Sample record(s) file to auto-discover fields (blank = none)", opts.sampleRecord || "")) || null;
     const ignore      = await ask("Extra facets to ignore, comma-separated (backend/permission facets are dropped automatically)", (opts.ignoreFacets || []).join(","));
     opts.ignoreFacets = normalizeList(ignore);
@@ -1019,7 +1019,7 @@ async function main() {
 
   // Facet → record-path mapping. In Algolia, a facet's analytics attribute name
   // is the same attribute name stored on the record, so an identity map is the
-  // correct, index-specific default (no hardcoded client schema). If a client
+  // correct, index-specific default (no hardcoded schema). If an index
   // stores the value under a different path, edit RECORD-side via the field map
   // or adjust this entry in the generated config.
   const facetToRecordPath = {};
@@ -1075,7 +1075,7 @@ function buildConfigBlock(snapshot) {
 
   const rerunNote = meta.fieldMapPath
     ? `--field-map ${meta.fieldMapPath}`
-    : "--field-map <path/to/client.field-map.json> [--sample-record <path/to/records.json>]";
+    : "--field-map <path/to/field-map.json> [--sample-record <path/to/records.json>]";
 
   const lines = [
     "/*__GENERATED_CONFIG_START__*/",

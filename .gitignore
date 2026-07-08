@@ -5,9 +5,9 @@
 .env.*
 !.env.example
 
-# ── Fetched / generated per-client data ──────────────────────────────────────
+# ── Fetched / generated per-index data ───────────────────────────────────────
 # Sample records are pulled from the index on demand and can be large.
-clients/**/sample-records.json
+indices/**/sample-records.json
 sample-records.json
 sample_records.json
 

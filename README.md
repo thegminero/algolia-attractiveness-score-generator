@@ -113,7 +113,7 @@ Backend filters that shoppers never choose — visibility flags and permission/c
 You don't hand-write anything. Interactive setup asks for an alias, then offers to **pull a few real records straight from the index** (Algolia Search API) and auto-suggest the field mappings. Everything for that index is grouped together:
 
 ```
-clients/<alias>/
+indices/<alias>/
   sample-records.json     ← fetched from the index for you
   field-map.json          ← auto-created, then filled in by discovery
   transform.generated.js  ← the scoring script
@@ -153,7 +153,7 @@ Algolia is schemaless — every index names its fields differently (e.g. `price`
 
 The discovery pass accepts a **single record OR an array of records** (`--sample-record`). More records give better frequency data and fewer false positives. The report shows the **top 3 ranked candidates** per field (score, value type, frequency) so you can pick the right one when the best guess is ambiguous.
 
-The synonym dictionary (`generator/field-aliases.json`) grows over time and is shared by the whole team — add new naming conventions there as you encounter them.
+The synonym dictionary (`generator/field-aliases.json`) is a plain JSON file committed to the repo. It doesn't grow on its own: when discovery misses a field because an index used an unusual name, add that name to the relevant key's list and commit it — future runs (and teammates who pull) then match it automatically.
 
 > **Note on verticals:** the script ships a single balanced `default` scoring profile — nothing vertical-specific is assumed, so every product is scored the same regardless of catalogue. To make scoring category-aware, opt in by adding profiles to `CATEGORY_PROFILES` and matching rules to `detectCategory()` in `generator/template.js` (both include inline examples).
 
@@ -168,7 +168,7 @@ generator/
   package.json
   README.md                Full CLI reference
 
-clients/<alias>/           Per-index working files (grouped by alias)
+indices/<alias>/           Per-index working files (grouped by alias)
   field-map.json
   sample-records.json
   analytics-snapshot.json

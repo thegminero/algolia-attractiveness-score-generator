@@ -87,7 +87,7 @@ You don't need to export anything or hand-write a field map. Give an alias in in
 ./gen --config magento2_prod --fetch-samples 10
 ```
 
-This pulls 10 real records via the Search API, saves them to `clients/<alias>/sample-records.json`, auto-creates `clients/<alias>/field-map.json`, and runs discovery — all in one command. (Requires a key with Search access to the index; otherwise fall back to Step 1–2 below with an exported records file.)
+This pulls 10 real records via the Search API, saves them to `indices/<alias>/sample-records.json`, auto-creates `indices/<alias>/field-map.json`, and runs discovery — all in one command. (Requires a key with Search access to the index; otherwise fall back to Step 1–2 below with an exported records file.)
 
 ### Step 1 — create a field-map file
 
@@ -96,11 +96,11 @@ The field map is **created automatically** the first time you reference one — 
 ```bash
 node generator/generate.js \
   --index my_index_prod \
-  --field-map ./clients/acme.field-map.json \
+  --field-map ./indices/acme/field-map.json \
   --out ./output/acme
 ```
 
-If `acme.field-map.json` does not exist, it is created with **generic defaults** (see `generator/field-map.default.json` for the reference/annotated version). All entries start with `source: "default"`.
+If `field-map.json` does not exist, it is created with **generic defaults** (see `generator/field-map.default.json` for the reference/annotated version). All entries start with `source: "default"`.
 
 ### Step 2 — run the discovery pass
 
@@ -109,8 +109,8 @@ Either use `--fetch-samples` (above) or provide your own records. The `--sample-
 ```bash
 node generator/generate.js \
   --index my_index_prod \
-  --field-map  ./clients/acme.field-map.json \
-  --sample-record ./clients/acme-sample-records.json \
+  --field-map  ./indices/acme/field-map.json \
+  --sample-record ./indices/acme/sample-records.json \
   --out ./output/acme
 ```
 
@@ -186,7 +186,7 @@ Candidates are also scored for **value type fitness**: a field that contains num
 
 ## Extending the synonym dictionary
 
-`generator/field-aliases.json` is the team-wide knowledge base that grows over time. When you encounter a new index naming convention, add the synonym there so every future run benefits:
+`generator/field-aliases.json` is a plain JSON file committed to the repo — it's shared with the team through git, not through any auto-learning. When discovery misses a field because an index used an unusual name, add that name to the relevant key's list and commit it, so future runs (and teammates who pull) match it automatically:
 
 ```json
 "reviewAverage": [
@@ -272,7 +272,7 @@ To drop additional facets, pass `--ignore-facets a,b,c` or set `"ignoreFacets": 
 
 ## Sharing across engineers
 
-Commit `generator/` to the shared repo. When you use an alias, everything for an index is grouped under `clients/<alias>/` automatically:
+Commit `generator/` to the shared repo. When you use an alias, everything for an index is grouped under `indices/<alias>/` automatically:
 
 ```
 generator/              ← commit: shared tooling, used for every index
@@ -281,7 +281,7 @@ generator/              ← commit: shared tooling, used for every index
   field-map.default.json
   field-aliases.json      ← grows over time
 
-clients/                ← per-index working files (grouped by alias)
+indices/                ← per-index working files (grouped by alias)
   magento2_prod/
     field-map.json          ← auto-created, reviewed & confirmed  (commit)
     sample-records.json     ← fetched from the index              (usually .gitignore)
