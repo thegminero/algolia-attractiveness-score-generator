@@ -43,7 +43,8 @@ Each `score_*` attribute can be used independently as an Algolia custom-ranking 
 ## Requirements
 
 - Node 18+ (uses the built-in `fetch`)
-- An Algolia API key with **Analytics + Search** access (Analytics to read filter-click data, Search to fetch sample records from the index)
+- An **Analytics API key** (`analytics` ACL) — required, to read filter-click data
+- Optionally a **Search API key** (`search` ACL) — only to auto-fetch sample records from the index (a single key with both ACLs also works)
 
 ---
 
@@ -52,13 +53,19 @@ Each `score_*` attribute can be used independently as an Algolia custom-ranking 
 Three ways to invoke it (all equivalent):
 
 ```bash
-export ALGOLIA_API_KEY=your_api_key   # key needs Analytics + Search access
+export ALGOLIA_ANALYTICS_API_KEY=your_analytics_key   # required
+export ALGOLIA_SEARCH_API_KEY=your_search_key         # optional (sample fetch)
 
 # 1. Interactive — answer the prompts
+#    (if configs already exist, it lists them first so you can run/edit/delete one)
 ./gen
 
 # 2. Config file — reuse saved settings (by alias, filename, or path)
 ./gen --config magento2_prod
+./gen --edit magento2_prod            # tweak an existing config, prompts pre-filled
+./gen --edit                          # ...or omit the alias to pick from a list
+./gen --delete magento2_prod          # remove a config (asks first)
+./gen --delete                        # ...or omit the alias to pick from a list
 
 # 3. Flags — scriptable / CI
 ./gen --index my_index_prod --app-id YOUR_APP_ID --out ./output
@@ -212,9 +219,13 @@ Both functions include inline examples showing exactly how.
 
 | Flag | Config key | Env var | Default | Description |
 |---|---|---|---|---|
-| `--config` | — | — | — | Load settings from a JSON config file |
+| `--config` | — | — | — | Load settings from a JSON config file (alias, filename, or path) |
+| `--edit [alias]` | — | — | — | Edit an existing config interactively (prompts pre-filled), saved back to the same file. Omit the alias to pick from an arrow-key list |
+| `--delete [alias]` | — | — | — | Delete a config file (asks first; can also remove its `indices/<alias>` working dir). Omit the alias to pick from an arrow-key list |
 | `--app-id` | `appId` | `ALGOLIA_APP_ID` | *(required)* | Algolia Application ID |
-| `--api-key` | `apiKey` | `ALGOLIA_API_KEY` | *(required)* | Algolia API key with Analytics + Search access |
+| `--analytics-api-key` | `analyticsApiKey` | `ALGOLIA_ANALYTICS_API_KEY` | *(required)* | API key with the `analytics` ACL |
+| `--search-api-key` | `searchApiKey` | `ALGOLIA_SEARCH_API_KEY` | *(optional)* | API key with the `search` ACL; only for auto-fetching sample records |
+| `--api-key` | `apiKey` | `ALGOLIA_API_KEY` | *(optional)* | Legacy combined Analytics+Search key; used as a fallback for both |
 | `--index` | `index` | `ALGOLIA_INDEX` | *(required)* | Index name to analyse |
 | `--start-date` | `startDate` | — | 30 days ago | Period start (`YYYY-MM-DD`) |
 | `--end-date` | `endDate` | — | today | Period end (`YYYY-MM-DD`) |
@@ -229,7 +240,7 @@ Both functions include inline examples showing exactly how.
 | `--interactive`, `-i` | — | — | — | Force interactive prompts |
 | `--help`, `-h` | — | — | — | Show usage help |
 
-Precedence: **flags > config file > env vars > defaults**. For shared/CI use, supply the API key via `ALGOLIA_API_KEY`; for local iteration you can cache it in the (git-ignored) config file.
+Precedence: **flags > config file > env vars > defaults**. For shared/CI use, supply the keys via `ALGOLIA_ANALYTICS_API_KEY` / `ALGOLIA_SEARCH_API_KEY`; for local iteration you can cache them in the (git-ignored) config file.
 
 ---
 
@@ -288,7 +299,8 @@ indices/                ← per-index working files (grouped by alias)
     analytics-snapshot.json ← last run                            (optional)
     transform.generated.js  ← the scoring script                  (commit)
 
-<alias>.config.json     ← per-index settings; git-ignored (may hold an API key)
+local_configs/          ← saved configs; whole folder git-ignored (may hold API keys)
+  magento2_prod.config.json
 ```
 
-Field-map files are worth committing (the confirmed mappings are real work). Fetched `sample-records.json` and `*.config.json` are best kept local.
+Field-map files are worth committing (the confirmed mappings are real work). Fetched `sample-records.json` and everything under `local_configs/` are best kept local.

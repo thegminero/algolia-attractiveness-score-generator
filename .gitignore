@@ -1,13 +1,22 @@
 # ── Secrets & local config ───────────────────────────────────────────────────
 # Config files may cache an Analytics API key — never commit them.
+# New configs are saved under local_configs/ by default; the whole folder is ignored.
+local_configs/
 *.config.json
 .env
 .env.*
 !.env.example
 
 # ── Fetched / generated per-index data ───────────────────────────────────────
+# Everything under indices/ is generated per-index and specific to a customer —
+# never commit it (sample records, field maps, analytics snapshot, transform).
+indices/
+
+# Generated artifacts, wherever they land (repo root, custom --out dirs, etc.)
+transform.generated.js
+analytics-snapshot.json
+
 # Sample records are pulled from the index on demand and can be large.
-indices/**/sample-records.json
 sample-records.json
 sample_records.json
 

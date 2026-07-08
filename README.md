@@ -48,17 +48,21 @@ generate.js CLI
 ## Requirements
 
 - Node 18+ (uses the built-in `fetch`)
-- An Algolia API key with **Analytics + Search** access — Analytics to read filter-click data, Search to fetch sample records from the index
+- An **Analytics API key** (the `analytics` ACL) — required, to read filter-click data
+- Optionally a **Search API key** (the `search` ACL) — only needed to auto-fetch sample records from the index. If you don't have one, skip it and pass your own records file instead.
+
+> A single key that carries **both** ACLs works for everything — pass it as the analytics key (or via the legacy `--api-key` / `ALGOLIA_API_KEY`, which falls back for both).
 
 ## Quick start
 
-Provide the API key one of two ways:
+Provide the keys via env vars (best for shared/CI use):
 
 ```bash
-export ALGOLIA_API_KEY=your_api_key   # env var (best for shared/CI use)
+export ALGOLIA_ANALYTICS_API_KEY=your_analytics_key   # required
+export ALGOLIA_SEARCH_API_KEY=your_search_key         # optional (sample fetch)
 ```
 
-…or cache it in a config file for convenient local iteration (the interactive save offers this, and `*.config.json` is git-ignored so it won't be committed). Precedence is flag > config file > env var.
+…or cache them in a config file for convenient local iteration (the interactive save offers this). Config files are saved under `local_configs/` by default, which is git-ignored so cached keys never get committed. Precedence is flag > config file > env var.
 
 Three ways to run it — all do the same thing:
 
@@ -74,21 +78,42 @@ Equivalently `node generator/generate.js`, or `gen` on Windows. At the end it ca
 
 ### 2. Config file
 
-Interactive setup asks for a short **alias** first (e.g. `magento2_prod`, typically one per index) and saves `<alias>.config.json`. Reuse it by alias — no `.config.json` needed:
+Interactive setup asks for a short **alias** first (e.g. `magento2_prod`, typically one per index) and saves `local_configs/<alias>.config.json`. Reuse it by alias — no folder or `.config.json` suffix needed:
 
 ```bash
-./gen --config magento2_prod                       # → magento2_prod.config.json
-./gen --config configs/magento2_prod.config.json   # or a full path
+./gen --config magento2_prod                              # → local_configs/magento2_prod.config.json
+./gen --config local_configs/magento2_prod.config.json   # or a full path
 ```
 
-`--config` accepts an alias, a filename, or a path, and also looks inside a `./configs` directory.
+`--config` accepts an alias, a filename, or a path. For an alias it looks in `local_configs/`, `configs/`, and the current directory.
+
+To change an existing config later, edit it interactively with every prompt pre-filled — your answers are saved back to the same file:
+
+```bash
+./gen --edit bestbuy_en      # edit in place
+./gen --edit                 # or omit the alias to pick from a list
+./gen --delete bestbuy_en    # remove it (asks first; can also delete indices/bestbuy_en)
+./gen --delete               # or omit the alias to pick from a list
+```
+
+If you run `./gen` with **no config** and configs already exist, it shows an arrow-key list (↑/↓ to move, Enter to select, Esc to cancel) so you can pick one to **run**, **edit**, or **delete** — or create a new one:
+
+```
+Select a config:
+❯ bestbuy_en
+  magento2_production_fr_products
+  ＋ Create a new config
+```
+
+(When input isn't an interactive terminal — e.g. piped or CI — it falls back to a numbered prompt.)
 
 A config file is plain JSON:
 
 ```json
 {
   "appId": "YOUR_APP_ID",
-  "apiKey": "YOUR_API_KEY",
+  "analyticsApiKey": "YOUR_ANALYTICS_KEY",
+  "searchApiKey": "YOUR_SEARCH_KEY",
   "index": "my_index_prod",
   "startDate": "2026-06-01",
   "endDate": "2026-06-30",
@@ -96,7 +121,7 @@ A config file is plain JSON:
 }
 ```
 
-`apiKey` is optional — include it for frictionless local re-runs, or omit it and use the `ALGOLIA_API_KEY` env var. Config files are git-ignored (`*.config.json`), so a cached key stays local.
+The keys are optional in the file — include them for frictionless local re-runs, or omit them and use the `ALGOLIA_ANALYTICS_API_KEY` / `ALGOLIA_SEARCH_API_KEY` env vars. `searchApiKey` can be left out entirely if you're not auto-fetching samples. Config files live in the git-ignored `local_configs/` folder, so cached keys stay local.
 
 ### 3. Flags (best for scripts / CI)
 
@@ -174,7 +199,8 @@ indices/<alias>/           Per-index working files (grouped by alias)
   analytics-snapshot.json
   transform.generated.js
 
-<alias>.config.json        Per-index settings; git-ignored (may hold an API key)
+local_configs/             Saved configs; whole folder git-ignored (may hold API keys)
+  <alias>.config.json
 ```
 
 See `generator/README.md` for the full CLI option reference, field-map format details, and customisation guide.

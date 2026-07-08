@@ -11,15 +11,18 @@
 // Usage:
 //   node generate.js --app-id <APP_ID> --index my_index [options]
 //
-// Required (one of):
-//   --api-key <key>              Algolia API key with Analytics + Search access
-//   ALGOLIA_API_KEY env var
-//
 // Required:
 //   --app-id  <id>               Algolia Application ID
 //   --index   <name>             Index name to analyse
+//   --analytics-api-key <key>    API key with the "analytics" ACL
+//                                (env ALGOLIA_ANALYTICS_API_KEY)
 //
 // Optional:
+//   --search-api-key <key>       API key with the "search" ACL, used only to
+//                                auto-fetch sample records from the index
+//                                (env ALGOLIA_SEARCH_API_KEY). Blank = skip fetch.
+//   --api-key <key>              Legacy combined Analytics+Search key; used as a
+//                                fallback for both (env ALGOLIA_API_KEY)
 //   --start-date <YYYY-MM-DD>    (default: 30 days ago)
 //   --end-date   <YYYY-MM-DD>    (default: today)
 //   --top-facets <n>             How many top facets to use   (default: 10)
@@ -41,6 +44,10 @@
 
 const fs   = require("fs");
 const path = require("path");
+
+// Local, git-ignored home for saved config files. New configs are written here
+// by default; older locations (cwd, ./configs) are still resolved for compat.
+const LOCAL_CONFIG_DIR = "local_configs";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -559,20 +566,38 @@ Three easy ways to run it:
        node generator/generate.js
        ./gen                       (short wrapper, macOS/Linux)
        gen                         (short wrapper, Windows)
+     If configs already exist, this shows an arrow-key list (↑/↓, Enter) so you
+     can run, edit, or delete one, or create a new config.
 
   2. Config file (put settings in a JSON file once, then reuse):
        ./gen --config groupeld_fr_prod          (alias → groupeld_fr_prod.config.json)
        ./gen --config configs/acme.config.json  (or a full path)
-     Interactive setup asks for an alias first and saves <alias>.config.json.
-     --config accepts the alias, the filename, or a path; it also looks in ./configs.
+     Interactive setup asks for an alias first and saves local_configs/<alias>.config.json.
+     --config accepts the alias, the filename, or a path; for an alias it looks in
+     local_configs/, configs/, and the current directory.
+     Edit an existing config with the prompts pre-filled, saved back to the same file:
+       ./gen --edit groupeld_fr_prod   (or ./gen --edit to pick from a list)
+     Delete a config (asks before removing the file / its working dir):
+       ./gen --delete groupeld_fr_prod (or ./gen --delete to pick from a list)
 
   3. Flags (scriptable / CI):
        node generator/generate.js --index my_index --app-id APPID ...
 
 Options (flags override config file, which overrides env vars, which override defaults):
-  --config <path>            Load settings from a JSON config file
+  --config <alias|path>      Load settings from a JSON config file
+  --edit [alias|path]        Edit an existing config interactively (prompts
+                             pre-filled), then save back to the same file.
+                             Omit the alias to pick from a numbered list.
+  --delete [alias|path]      Delete a config file (asks first; can also remove
+                             its indices/<alias> working dir). Omit the alias
+                             to pick from a numbered list.
   --app-id <id>              Algolia Application ID          (env ALGOLIA_APP_ID)
-  --api-key <key>            API key w/ Analytics + Search    (env ALGOLIA_API_KEY)
+  --analytics-api-key <key>  API key w/ "analytics" ACL — required
+                             (env ALGOLIA_ANALYTICS_API_KEY)
+  --search-api-key <key>     API key w/ "search" ACL — optional, only for
+                             --fetch-samples (env ALGOLIA_SEARCH_API_KEY)
+  --api-key <key>            Legacy combined key, fallback for both
+                             (env ALGOLIA_API_KEY)
   --index <name>             Index to analyse                (env ALGOLIA_INDEX)
   --region <us|de>           Analytics data-center: 'us' for US-hosted apps,
                              'de' for EU-hosted apps         (default us)
@@ -592,11 +617,12 @@ Options (flags override config file, which overrides env vars, which override de
   --interactive, -i          Force interactive prompts
   --help, -h                 Show this help
 
-Config file keys (camelCase): appId, apiKey, index, region, startDate, endDate,
-  topFacets, topValues, out, fieldMap, sampleRecord, ignoreFacets, fetchSamples.
-The API key can be cached in the config file for convenient LOCAL re-runs (the
-interactive save offers this, and *.config.json is git-ignored). For anything
-committed or shared, prefer the ALGOLIA_API_KEY env var instead.
+Config file keys (camelCase): appId, analyticsApiKey, searchApiKey, apiKey (legacy),
+  index, region, startDate, endDate, topFacets, topValues, out, fieldMap,
+  sampleRecord, ignoreFacets, fetchSamples.
+Keys can be cached in the config file for convenient LOCAL re-runs (the interactive
+save offers this, and *.config.json is git-ignored). For anything committed or
+shared, prefer the ALGOLIA_ANALYTICS_API_KEY / ALGOLIA_SEARCH_API_KEY env vars.
 `);
 }
 
@@ -609,8 +635,10 @@ committed or shared, prefer the ALGOLIA_API_KEY env var instead.
 function resolveConfigPath(input) {
   const candidates = [input];
   if (!input.endsWith(".json")) candidates.push(`${input}.config.json`);
-  candidates.push(path.join("configs", input));
-  if (!input.endsWith(".json")) candidates.push(path.join("configs", `${input}.config.json`));
+  for (const dir of [LOCAL_CONFIG_DIR, "configs"]) {
+    candidates.push(path.join(dir, input));
+    if (!input.endsWith(".json")) candidates.push(path.join(dir, `${input}.config.json`));
+  }
 
   const tried = [];
   for (const c of candidates) {
@@ -637,6 +665,163 @@ function loadConfigFile(configPath) {
   }
 }
 
+// Find every *.config.json in the cwd and ./configs (deduped by absolute path).
+function discoverConfigs() {
+  const seen = new Map();
+  for (const dir of [path.resolve(LOCAL_CONFIG_DIR), path.resolve("configs"), process.cwd()]) {
+    let entries = [];
+    try { entries = fs.readdirSync(dir); } catch { continue; }
+    for (const f of entries) {
+      if (!f.endsWith(".config.json")) continue;
+      const abs = path.join(dir, f);
+      if (!seen.has(abs)) {
+        seen.set(abs, { alias: f.replace(/\.config\.json$/, ""), path: abs });
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.alias.localeCompare(b.alias));
+}
+
+// Minimal yes/no prompt bound to an existing line reader.
+async function confirmYesNo(rl, label, defaultYes) {
+  const hint = defaultYes ? "[Y/n]" : "[y/N]";
+  const raw  = await rl.question(`${label} ${hint}: `);
+  const ans  = (raw === null ? "" : raw).trim().toLowerCase();
+  if (ans === "") return defaultYes;
+  return ans === "y" || ans === "yes";
+}
+
+// Arrow-key menus need a real TTY that supports raw mode. Piped input / CI
+// fall back to a numbered prompt.
+function supportsArrowMenu() {
+  return !!(process.stdin.isTTY && typeof process.stdin.setRawMode === "function");
+}
+
+// Interactive ↑/↓ selector. Renders `items` ([{label}]) and lets the user move
+// with the arrow keys (or j/k), select with Enter, cancel with Esc/q.
+// Resolves to the chosen index, or -1 if cancelled. TTY-only (guard with
+// supportsArrowMenu()). Ctrl-C exits the process, as usual.
+function arrowMenu(items, { header = "" } = {}) {
+  return new Promise((resolve) => {
+    const readline = require("node:readline");
+    const stdin  = process.stdin;
+    const stdout = process.stdout;
+    let index = 0;
+
+    if (header) stdout.write(header + "\n");
+    stdout.write("\x1b[2m  (↑/↓ to move · Enter to select · Esc to cancel)\x1b[0m\n");
+
+    const draw = () => {
+      items.forEach((it, i) => {
+        readline.cursorTo(stdout, 0);
+        readline.clearLine(stdout, 0);
+        if (i === index) stdout.write(`\x1b[36m❯ ${it.label}\x1b[0m\n`);
+        else             stdout.write(`  ${it.label}\n`);
+      });
+    };
+    const redraw = () => { readline.moveCursor(stdout, 0, -items.length); draw(); };
+
+    draw();
+
+    readline.emitKeypressEvents(stdin);
+    const wasRaw = stdin.isRaw;
+    if (stdin.setRawMode) stdin.setRawMode(true);
+    stdin.resume();
+
+    const cleanup = () => {
+      stdin.removeListener("keypress", onKey);
+      if (stdin.setRawMode) stdin.setRawMode(!!wasRaw);
+      stdin.pause();
+    };
+
+    const onKey = (str, key) => {
+      if (!key) return;
+      if (key.name === "up" || key.name === "k") { index = (index - 1 + items.length) % items.length; redraw(); }
+      else if (key.name === "down" || key.name === "j") { index = (index + 1) % items.length; redraw(); }
+      else if (key.name === "return" || key.name === "enter") { cleanup(); resolve(index); }
+      else if (key.name === "escape" || key.name === "q") { cleanup(); resolve(-1); }
+      else if (key.ctrl && key.name === "c") { cleanup(); stdout.write("\n"); process.exit(130); }
+    };
+
+    stdin.on("keypress", onKey);
+  });
+}
+
+// Present a menu and return { index, rl }. Uses the arrow selector on a TTY,
+// otherwise a numbered prompt. The returned line reader is left OPEN so callers
+// can run follow-up prompts (e.g. a delete confirmation) on the same stdin
+// without losing buffered input; the caller must close it.
+async function menuSelectWithReader(items, { header = "" } = {}) {
+  if (supportsArrowMenu()) {
+    const index = await arrowMenu(items, { header });
+    return { index, rl: createLineReader() };
+  }
+  const rl = createLineReader();
+  if (header) console.log(header);
+  items.forEach((it, i) => console.log(`  ${i + 1}) ${it.label}`));
+  const raw = await rl.question("\n  Pick a number (or Enter to cancel): ");
+  const sel = (raw === null ? "" : raw).trim();
+  let index = -1;
+  if (sel !== "") {
+    const n = parseInt(sel, 10);
+    if (Number.isInteger(n) && n >= 1 && n <= items.length) index = n - 1;
+  }
+  return { index, rl };
+}
+
+// Delete a config file (with confirmation) and optionally its indices/<alias>
+// dir, using an existing line reader. `indent` prefixes the messages so it reads
+// nicely both as a top-level command and inside the interactive picker menu.
+async function removeConfig(rl, abs, alias, indent = "") {
+  const ok = await confirmYesNo(rl, `${indent}Delete config ${abs}?`, false);
+  if (!ok) { console.log(`${indent}Aborted — nothing deleted.`); return; }
+  fs.unlinkSync(abs);
+  console.log(`${indent}Deleted ${abs}`);
+
+  const dir = indexDirFor(alias);
+  if (fs.existsSync(dir)) {
+    const rel = path.relative(process.cwd(), dir) || dir;
+    const ok2 = await confirmYesNo(rl, `${indent}Also delete its working dir ${rel} (sample records, field map, generated script)?`, false);
+    if (ok2) { fs.rmSync(dir, { recursive: true, force: true }); console.log(`${indent}Deleted ${rel}`); }
+  }
+}
+
+// Delete a named config (--delete <alias|path>).
+async function deleteConfigFlow(input) {
+  const resolved = resolveConfigPath(String(input));
+  if (resolved && resolved.notFound) {
+    console.error(`Error: no config file found for "${input}". Looked for:`);
+    resolved.tried.forEach((p) => console.error(`  - ${p}`));
+    process.exit(1);
+  }
+  const abs   = resolved;
+  const alias = path.basename(abs).replace(/\.config\.json$/, "");
+  const rl    = createLineReader();
+  try {
+    await removeConfig(rl, abs, alias);
+  } finally {
+    rl.close();
+  }
+}
+
+// Let the user pick a config with the arrow selector (or numbered fallback).
+// Returns the chosen config or null. Closes the reader itself — use this when no
+// follow-up prompt is needed (e.g. --edit). `verb` is shown in the header.
+async function selectConfig(verb) {
+  const configs = discoverConfigs();
+  if (configs.length === 0) {
+    console.log("No saved configs found (looked in local_configs/, configs/, and the current dir).");
+    return null;
+  }
+  const { index, rl } = await menuSelectWithReader(
+    configs.map((c) => ({ label: c.alias })),
+    { header: `\nSelect a config to ${verb}:` }
+  );
+  rl.close();
+  if (index < 0) { console.log("  Cancelled."); return null; }
+  return configs[index];
+}
+
 // Resolve options with precedence: CLI flag > config file > env var > default.
 function resolveOptions(args) {
   const cfg = args.config ? loadConfigFile(args.config) : {};
@@ -651,7 +836,13 @@ function resolveOptions(args) {
   return {
     config:       args.config || null,
     appId:        pick("app-id", "appId", "ALGOLIA_APP_ID", undefined),
-    apiKey:       pick("api-key", "apiKey", "ALGOLIA_API_KEY", undefined),
+    // Analytics key (required) is used for the Analytics API. Search key
+    // (optional) is used only to auto-fetch sample records from the index.
+    // Legacy `apiKey` (a combined Analytics+Search key) still works as a
+    // fallback for both so existing configs keep running.
+    apiKey:          pick("api-key", "apiKey", "ALGOLIA_API_KEY", undefined),
+    analyticsApiKey: pick("analytics-api-key", "analyticsApiKey", "ALGOLIA_ANALYTICS_API_KEY", undefined),
+    searchApiKey:    pick("search-api-key", "searchApiKey", "ALGOLIA_SEARCH_API_KEY", undefined),
     index:        pick("index", "index", "ALGOLIA_INDEX", undefined),
     region:       pick("region", "region", null, "us"),
     startDate:    pick("start-date", "startDate", null, daysAgo(30)),
@@ -664,6 +855,19 @@ function resolveOptions(args) {
     ignoreFacets: normalizeList(pick("ignore-facets", "ignoreFacets", null, [])),
     fetchSamples: pick("fetch-samples", "fetchSamples", null, null),
   };
+}
+
+// Effective key for the Analytics API (required). Falls back to the legacy
+// combined key so old configs keep working.
+function analyticsKeyOf(opts) {
+  return opts.analyticsApiKey || opts.apiKey || null;
+}
+
+// Effective key for the Search API sample fetch (optional). Prefers a dedicated
+// search key, then the legacy combined key, then the analytics key (admin keys
+// often carry both ACLs). Fetch failures are handled gracefully downstream.
+function searchKeyOf(opts) {
+  return opts.searchApiKey || opts.apiKey || opts.analyticsApiKey || null;
 }
 
 // Accepts a comma/space separated string OR an array; returns a clean string array.
@@ -708,7 +912,15 @@ function createLineReader() {
 // Adds patterns to the nearest .gitignore, walking up from the config file to
 // find a repo root; otherwise creates one next to the config file.
 function ensureGitignore(configAbsPath) {
-  const patterns = ["*.config.json", ".env", "indices/**/sample-records.json"];
+  const patterns = [
+    "*.config.json",
+    "local_configs/",
+    ".env",
+    "indices/",
+    "transform.generated.js",
+    "analytics-snapshot.json",
+    "sample-records.json",
+  ];
   try {
     let dir = path.dirname(configAbsPath);
     let repoRoot = null;
@@ -764,21 +976,35 @@ async function runInteractive(opts) {
     return ans === "y" || ans === "yes";
   };
 
-  console.log("\nInteractive setup — press Enter to accept the default shown in [brackets].\n");
+  if (opts._edit) {
+    console.log(`\nEditing config: ${opts._configPath}`);
+    console.log("Press Enter to keep each current value shown in [brackets].\n");
+  } else {
+    console.log("\nInteractive setup — press Enter to accept the default shown in [brackets].\n");
+  }
 
-  const alias = await ask("Config alias — short name for this customer/config, e.g. groupeld_fr_prod (a customer may have many indices)", opts._alias || "");
-  opts._alias = (alias || "").trim() || null;
+  // In edit mode the alias (and thus the file) is fixed — don't re-prompt it,
+  // and keep the config's existing out/fieldMap paths untouched.
+  let indexDir = null;
+  if (opts._edit) {
+    indexDir = opts._alias ? indexDirFor(opts._alias) : null;
+  } else {
+    const alias = await ask("Config alias — short name for this customer/config, e.g. groupeld_fr_prod (a customer may have many indices)", opts._alias || "");
+    opts._alias = (alias || "").trim() || null;
 
-  // When an alias is given, keep everything for this index together under
-  // indices/<alias>/ and default the field map + output there automatically.
-  const indexDir = opts._alias ? indexDirFor(opts._alias) : null;
-  if (indexDir) {
-    if (!opts.fieldMap) opts.fieldMap = path.join(indexDir, "field-map.json");
-    opts.out = indexDir;
+    // When an alias is given, keep everything for this index together under
+    // indices/<alias>/ and default the field map + output there automatically.
+    indexDir = opts._alias ? indexDirFor(opts._alias) : null;
+    if (indexDir) {
+      if (!opts.fieldMap) opts.fieldMap = path.join(indexDir, "field-map.json");
+      opts.out = indexDir;
+    }
   }
 
   opts.appId        = await ask("Algolia Application ID", opts.appId);
-  opts.apiKey       = await ask("API key with Analytics + Search access (blank = use ALGOLIA_API_KEY env)", opts.apiKey, { mask: true });
+  opts.analyticsApiKey = await ask("Analytics API key (needs the \"analytics\" ACL — required)", opts.analyticsApiKey || opts.apiKey, { mask: true });
+  opts.searchApiKey    = (await ask("Search API key (needs \"search\" ACL — optional, only for auto-fetching sample records; blank = skip/reuse analytics key)", opts.searchApiKey || "", { mask: true })) || null;
+  opts.apiKey       = null;
   opts.index        = await ask("Index name", opts.index);
   opts.startDate    = await ask("Start date (YYYY-MM-DD)", opts.startDate);
   opts.endDate      = await ask("End date (YYYY-MM-DD)", opts.endDate);
@@ -786,17 +1012,19 @@ async function runInteractive(opts) {
 
   // ── Sample records for field auto-discovery ──────────────────────────────
   // The easiest path: let the tool pull a few real records from the index.
-  if (opts.appId && opts.apiKey && opts.index && !opts.sampleRecord) {
+  const interactiveSearchKey = searchKeyOf(opts);
+  if (opts.appId && interactiveSearchKey && opts.index && !opts.sampleRecord) {
     console.log("");
     console.log("  To map this index's fields (price, stock, reviews…), the tool can pull a few");
     console.log("  real records straight from the index and auto-suggest the mappings.");
+    console.log("  (Needs a key with search access — a dedicated Search key or an analytics key that also has the \"search\" ACL.)");
     const doFetch = await askYesNo("Fetch sample records from Algolia now?", true);
     if (doFetch) {
       const n = parseInt(await ask("How many records to fetch", 10), 10) || 10;
       const targetDir = indexDir || path.resolve(opts.out || process.cwd());
       try {
         process.stdout.write(`  Fetching ${n} records from "${opts.index}"… `);
-        const hits = await fetchSampleRecords(opts.appId, opts.apiKey, opts.index, n);
+        const hits = await fetchSampleRecords(opts.appId, interactiveSearchKey, opts.index, n);
         if (hits.length === 0) {
           console.log("none returned (empty index or query).");
         } else {
@@ -829,20 +1057,27 @@ async function runInteractive(opts) {
     opts.ignoreFacets = normalizeList(ignore);
   }
 
-  // ── Save settings for next time (default: yes, to ./<alias>.config.json) ──
+  // ── Save settings (edit mode: back to the same file; otherwise local_configs/<alias>.config.json) ──
   console.log("");
-  const defaultConfigPath = path.join(process.cwd(), configFileNameFor(opts._alias || opts.index));
+  const defaultConfigPath = opts._edit && opts._configPath
+    ? opts._configPath
+    : path.resolve(LOCAL_CONFIG_DIR, configFileNameFor(opts._alias || opts.index));
   const relPath = path.relative(process.cwd(), defaultConfigPath) || defaultConfigPath;
-  console.log("  Saving your answers to a config file lets you re-run everything later with a single");
-  console.log("  command: ./gen --config <file>  (git-ignored; you choose whether to cache the API key).");
+  if (opts._edit) {
+    console.log(`  Save the changes back to ${relPath}? (git-ignored; you choose whether to cache the API key.)`);
+  } else {
+    console.log("  Saving your answers to a config file lets you re-run everything later with a single");
+    console.log("  command: ./gen --config <file>  (git-ignored; you choose whether to cache the API key).");
+  }
   const doSave = await askYesNo(`Save these settings to ${relPath}?`, true);
 
   if (doSave) {
     const customPath = await ask("  Config file path", relPath);
     const abs = path.resolve(customPath);
 
-    const cacheKey = opts.apiKey
-      ? await askYesNo("  Also cache the API key in this file for easy local re-runs? (do NOT commit it)", true)
+    const hasAnyKey = opts.analyticsApiKey || opts.searchApiKey;
+    const cacheKey = hasAnyKey
+      ? await askYesNo("  Also cache the API key(s) in this file for easy local re-runs? (do NOT commit it)", true)
       : false;
 
     const toSave = {
@@ -858,30 +1093,68 @@ async function runInteractive(opts) {
       sampleRecord: opts.sampleRecord,
       ignoreFacets: opts.ignoreFacets || [],
     };
-    if (cacheKey) toSave.apiKey = opts.apiKey;
+    if (cacheKey && opts.analyticsApiKey) toSave.analyticsApiKey = opts.analyticsApiKey;
+    if (cacheKey && opts.searchApiKey)    toSave.searchApiKey    = opts.searchApiKey;
 
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, JSON.stringify(toSave, null, 2));
     ensureGitignore(abs);
 
-    // Reuse token: if the file is a ./<name>.config.json in cwd, the alias form
-    // (./gen --config <name>) works; otherwise show the relative path.
-    const inCwd     = path.dirname(abs) === process.cwd();
-    const baseAlias = path.basename(abs).replace(/\.config\.json$/, "");
-    const reuseToken = inCwd && path.basename(abs).endsWith(".config.json")
+    // Reuse token: if the file is a <name>.config.json in a location resolveConfigPath
+    // searches (local_configs/, configs/, or cwd), the alias form (./gen --config
+    // <name>) works; otherwise show the relative path.
+    const parentDir  = path.dirname(abs);
+    const aliasDirs  = [path.resolve(LOCAL_CONFIG_DIR), path.resolve("configs"), process.cwd()];
+    const baseAlias  = path.basename(abs).replace(/\.config\.json$/, "");
+    const reuseToken = aliasDirs.includes(parentDir) && path.basename(abs).endsWith(".config.json")
       ? baseAlias
       : (path.relative(process.cwd(), abs) || abs);
 
     console.log(`\n  Saved config → ${abs}`);
     if (cacheKey) {
-      console.log(`  API key cached in this file — it's git-ignored, keep it local and never commit it.`);
+      const cached = [opts.analyticsApiKey && "analytics", opts.searchApiKey && "search"].filter(Boolean).join(" + ");
+      console.log(`  Cached key(s) [${cached}] in this file — it's git-ignored, keep it local and never commit it.`);
     } else {
-      console.log(`  API key not saved — keep it in the ALGOLIA_API_KEY env var.`);
+      console.log(`  API key(s) not saved — keep them in the ALGOLIA_ANALYTICS_API_KEY / ALGOLIA_SEARCH_API_KEY env vars.`);
     }
     console.log(`  Next time just run:  ./gen --config ${reuseToken}\n`);
   }
 
   rl.close();
+}
+
+// Interactive entry when no config/index was given. Lets the engineer pick an
+// existing config (run / edit / delete) or create a new one. Returns a decision
+// object: { mode: "run"|"edit"|"new"|"done", config? }.
+async function chooseConfigFlow() {
+  const configs = discoverConfigs();
+  if (configs.length === 0) return { mode: "new" };
+
+  const NEW_LABEL = "＋ Create a new config";
+  const listItems = [...configs.map((c) => ({ label: c.alias })), { label: NEW_LABEL }];
+  const first = await menuSelectWithReader(listItems, { header: "\nSelect a config:" });
+  first.rl.close();
+  if (first.index < 0) return { mode: "done" };                 // cancelled
+  if (first.index === configs.length) return { mode: "new" };   // "Create a new config"
+  const chosen = configs[first.index];
+
+  const actions = [
+    { label: "Run it now",                  key: "run" },
+    { label: "Edit it (prompts pre-filled)", key: "edit" },
+    { label: "Delete it",                    key: "delete" },
+  ];
+  const { index: aidx, rl } = await menuSelectWithReader(actions, { header: `\nConfig "${chosen.alias}" — choose an action:` });
+  try {
+    if (aidx < 0) return { mode: "done" };
+    if (actions[aidx].key === "delete") {
+      await removeConfig(rl, chosen.path, chosen.alias, "  ");
+      return { mode: "done" };
+    }
+    if (actions[aidx].key === "edit") return { mode: "edit", config: chosen };
+    return { mode: "run", config: chosen };
+  } finally {
+    rl.close();
+  }
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -891,17 +1164,83 @@ async function main() {
 
   if (args.help || args.h) { printHelp(); process.exit(0); }
 
+  // --delete [alias|path]: remove a config file (and optionally its working dir).
+  // With no value, show an arrow-key picker to choose which config to delete.
+  if (args.delete !== undefined) {
+    if (args.delete === true) {
+      const configs = discoverConfigs();
+      if (configs.length === 0) {
+        console.log("No saved configs found (looked in local_configs/, configs/, and the current dir).");
+        return;
+      }
+      const { index, rl } = await menuSelectWithReader(
+        configs.map((c) => ({ label: c.alias })),
+        { header: "\nSelect a config to delete:" }
+      );
+      try {
+        if (index < 0) { console.log("  Cancelled."); return; }
+        await removeConfig(rl, configs[index].path, configs[index].alias);
+      } finally { rl.close(); }
+      return;
+    }
+    await deleteConfigFlow(args.delete);
+    return;
+  }
+
+  // --edit [alias|path]: load an existing config, re-run the interactive prompts
+  // pre-filled with its values, and save back to the SAME file. With no value,
+  // show an arrow-key picker to choose which config to edit.
+  let editArg = args.edit;
+  if (editArg === true) {
+    const chosen = await selectConfig("edit");
+    if (!chosen) return;
+    editArg = chosen.path;
+  }
+  if (editArg !== undefined) {
+    args.config = editArg; // so resolveOptions loads its values
+  }
+
   const opts = resolveOptions(args);
 
-  // Interactive when explicitly requested, or when nothing was provided and a TTY is available.
-  const forceInteractive = args.interactive === true || args.i === true;
+  if (editArg !== undefined) {
+    const resolved = resolveConfigPath(String(editArg));
+    const abs = typeof resolved === "string" ? resolved : null;
+    if (abs) {
+      opts._edit = true;
+      opts._configPath = abs;
+      opts._alias = path.basename(abs).replace(/\.config\.json$/, "");
+    }
+  }
+
+  // Interactive when explicitly requested, when editing, or when nothing was
+  // provided and a TTY is available.
+  const forceInteractive = args.interactive === true || args.i === true || opts._edit === true;
   const nothingProvided   = !opts.index && !opts.config;
-  if (forceInteractive || (nothingProvided && process.stdin.isTTY)) {
+
+  if (opts._edit) {
+    await runInteractive(opts);
+  } else if (nothingProvided && process.stdin.isTTY) {
+    // Offer existing configs (run / edit / delete) before falling back to a fresh setup.
+    const decision = await chooseConfigFlow();
+    if (decision.mode === "done") return; // deleted or aborted — nothing to generate
+    if (decision.mode === "run") {
+      Object.assign(opts, resolveOptions({ config: decision.config.path }));
+    } else if (decision.mode === "edit") {
+      Object.assign(opts, resolveOptions({ config: decision.config.path }));
+      opts._edit       = true;
+      opts._configPath = decision.config.path;
+      opts._alias      = decision.config.alias;
+      await runInteractive(opts);
+    } else {
+      await runInteractive(opts); // new
+    }
+  } else if (forceInteractive) {
     await runInteractive(opts);
   }
 
   const appId        = opts.appId;
-  const apiKey       = opts.apiKey;
+  const analyticsKey = analyticsKeyOf(opts);
+  const searchKey    = searchKeyOf(opts);
   const index        = opts.index;
   const region       = opts.region;
   const startDate    = opts.startDate;
@@ -912,20 +1251,24 @@ async function main() {
   let   fieldMapArg  = opts.fieldMap     ? path.resolve(opts.fieldMap)     : null;
   let   sampleRecArg = opts.sampleRecord ? path.resolve(opts.sampleRecord) : null;
 
-  if (!appId)  { console.error("Error: Application ID is required (--app-id, config appId, or ALGOLIA_APP_ID)"); process.exit(1); }
-  if (!apiKey) { console.error("Error: API key is required (--api-key or ALGOLIA_API_KEY env)"); process.exit(1); }
-  if (!index)  { console.error("Error: index is required (--index, config index, or ALGOLIA_INDEX)"); process.exit(1); }
+  if (!appId)        { console.error("Error: Application ID is required (--app-id, config appId, or ALGOLIA_APP_ID)"); process.exit(1); }
+  if (!analyticsKey) { console.error("Error: an Analytics API key is required (--analytics-api-key, config analyticsApiKey, or ALGOLIA_ANALYTICS_API_KEY). The key must have the \"analytics\" ACL."); process.exit(1); }
+  if (!index)        { console.error("Error: index is required (--index, config index, or ALGOLIA_INDEX)"); process.exit(1); }
 
   // ── Step 0 (optional): auto-fetch sample records from the index ───────────
   // Enabled by --fetch-samples[=n] or "fetchSamples" in the config. Saves the
   // engineer from exporting records by hand and feeds the discovery pass.
   const wantFetch = (opts.fetchSamples != null && opts.fetchSamples !== false) || args["fetch-samples"] === true;
-  if (!sampleRecArg && wantFetch) {
+  if (!sampleRecArg && wantFetch && !searchKey) {
+    console.error("  Cannot fetch samples: no Search API key provided (--search-api-key, config searchApiKey, or ALGOLIA_SEARCH_API_KEY).");
+    console.error("  Provide --sample-record manually instead, or add a key with search access.");
+  }
+  if (!sampleRecArg && wantFetch && searchKey) {
     const raw = opts.fetchSamples;
     const n   = Number.isInteger(raw) ? raw : (parseInt(raw, 10) || 10);
     try {
       console.log(`\nFetching ${n} sample records from "${index}" via the Search API…`);
-      const hits = await fetchSampleRecords(appId, apiKey, index, n);
+      const hits = await fetchSampleRecords(appId, searchKey, index, n);
       if (hits.length > 0) {
         fs.mkdirSync(outDir, { recursive: true });
         const samplePath = path.join(outDir, "sample-records.json");
@@ -980,7 +1323,7 @@ async function main() {
   console.log(`\nFetching top facets for index "${index}" (${startDate} → ${endDate})…`);
 
   const extraIgnore = new Set(opts.ignoreFacets || []);
-  const facetsData  = await algoliaFetch(`${base}?${qs}`, appId, apiKey);
+  const facetsData  = await algoliaFetch(`${base}?${qs}`, appId, analyticsKey);
   const rawFacets   = facetsData.attributes || [];
   const allFacets   = rawFacets.filter((f) => !isNoiseFacet(f.attribute, extraIgnore));
   const dropped     = rawFacets.filter((f) => isNoiseFacet(f.attribute, extraIgnore));
@@ -1003,7 +1346,7 @@ async function main() {
   console.log("\nFetching popular values per facet…");
   const valueTasks = kept.map((facet) => async () => {
     const attr = encodeURIComponent(facet.attribute);
-    const data = await algoliaFetch(`${base}/${attr}?${qs}`, appId, apiKey);
+    const data = await algoliaFetch(`${base}/${attr}?${qs}`, appId, analyticsKey);
     const values = (data.values || []).slice(0, topValues).map((v) => ({
       value: v.value,
       count: v.count,
