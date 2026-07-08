@@ -1,6 +1,6 @@
 # Attractiveness Script Generator
 
-A zero-dependency Node CLI that queries the Algolia Analytics API and generates a
+A Node CLI that queries the Algolia Analytics API and generates a
 ready-to-deploy product attractiveness scoring transform, seeded with real filter-click data.
 
 ## How it works
@@ -42,8 +42,8 @@ Each `score_*` attribute can be used independently as an Algolia custom-ranking 
 
 ## Requirements
 
-- Node 18+ (uses native `fetch`, no `npm install`)
-- An Algolia **Analytics** API key with read access
+- Node 18+ (uses the built-in `fetch`)
+- An Algolia API key with **Analytics + Search** access (Analytics to read filter-click data, Search to fetch sample records from the index)
 
 ---
 
@@ -52,13 +52,13 @@ Each `score_*` attribute can be used independently as an Algolia custom-ranking 
 Three ways to invoke it (all equivalent):
 
 ```bash
-export ALGOLIA_API_KEY=your_analytics_api_key
+export ALGOLIA_API_KEY=your_api_key   # key needs Analytics + Search access
 
-# 1. Interactive — answer prompts, no flags/special characters
+# 1. Interactive — answer the prompts
 ./gen
 
-# 2. Config file — settings stored once per client
-./gen --config clients/acme.config.json
+# 2. Config file — reuse saved settings (by alias, filename, or path)
+./gen --config magento2_prod
 
 # 3. Flags — scriptable / CI
 ./gen --index my_index_prod --app-id YOUR_APP_ID --out ./output
@@ -75,19 +75,19 @@ Produces two files in `./output/`:
 
 ---
 
-## Configuring record field names (multi-client support)
+## Configuring record field names (any index schema)
 
-Algolia is schemaless — every client names their record fields differently. The generator handles this through a **field-map file** that maps canonical scoring keys (e.g. `price`, `reviewAverage`, `promoTags`) to the actual dot-paths in that client's records.
+Algolia is schemaless — every index names its record fields differently. The generator handles this through a **field-map file** that maps canonical scoring keys (e.g. `price`, `reviewAverage`, `promoTags`) to the actual dot-paths in that index's records.
 
 ### Easiest path — let the tool fetch the records
 
 You don't need to export anything or hand-write a field map. Give an alias in interactive mode (or run non-interactively) and let it pull real records from the index:
 
 ```bash
-./gen --config acme --fetch-samples 10
+./gen --config magento2_prod --fetch-samples 10
 ```
 
-This pulls 10 real records via the Search API, saves them to `clients/acme/sample-records.json`, auto-creates `clients/acme/field-map.json`, and runs discovery — all in one command. (Requires a key with search access to the index; otherwise fall back to Step 1–2 below with an exported records file.)
+This pulls 10 real records via the Search API, saves them to `clients/<alias>/sample-records.json`, auto-creates `clients/<alias>/field-map.json`, and runs discovery — all in one command. (Requires a key with Search access to the index; otherwise fall back to Step 1–2 below with an exported records file.)
 
 ### Step 1 — create a field-map file
 
@@ -146,7 +146,7 @@ Open `acme.field-map.json` and inspect the suggested entries. When a path is cor
 }
 ```
 
-`"NONE"` is a valid, explicit signal: it means this client has no equivalent attribute. The scoring function will degrade gracefully (neutral contribution, no error). Setting `source: "confirmed"` prevents future discovery runs from overwriting it.
+`"NONE"` is a valid, explicit signal: it means this index has no equivalent attribute. The scoring function will degrade gracefully (neutral contribution, no error). Setting `source: "confirmed"` prevents future discovery runs from overwriting it.
 
 ### Step 4 — regenerate
 
@@ -186,7 +186,7 @@ Candidates are also scored for **value type fitness**: a field that contains num
 
 ## Extending the synonym dictionary
 
-`generator/field-aliases.json` is the team-wide knowledge base that grows over time. When you encounter a new client naming convention, add the synonym there so all future clients benefit:
+`generator/field-aliases.json` is the team-wide knowledge base that grows over time. When you encounter a new index naming convention, add the synonym there so every future run benefits:
 
 ```json
 "reviewAverage": [
@@ -197,7 +197,7 @@ Candidates are also scored for **value type fitness**: a field that contains num
 
 ## Optional: category-aware scoring
 
-By default the script ships a **single balanced `default` profile** — no vertical-specific weights are assumed, so every product is scored the same way regardless of catalogue. This is intentional: the generator has no way to know a client's verticals, and hardcoding furniture/appliance verticals into every client's script would be noise.
+By default the script ships a **single balanced `default` profile** — no vertical-specific weights are assumed, so every product is scored the same way regardless of catalogue. This is intentional: the generator has no way to know an index's verticals, and hardcoding furniture/appliance verticals into every generated script would be noise.
 
 If you want category-aware scoring (different component weights or price thresholds per vertical), opt in by editing `generator/template.js` (or the generated script, outside the config markers):
 
@@ -214,7 +214,7 @@ Both functions include inline examples showing exactly how.
 |---|---|---|---|---|
 | `--config` | — | — | — | Load settings from a JSON config file |
 | `--app-id` | `appId` | `ALGOLIA_APP_ID` | *(required)* | Algolia Application ID |
-| `--api-key` | `apiKey` | `ALGOLIA_API_KEY` | *(required)* | Algolia Analytics API key |
+| `--api-key` | `apiKey` | `ALGOLIA_API_KEY` | *(required)* | Algolia API key with Analytics + Search access |
 | `--index` | `index` | `ALGOLIA_INDEX` | *(required)* | Index name to analyse |
 | `--start-date` | `startDate` | — | 30 days ago | Period start (`YYYY-MM-DD`) |
 | `--end-date` | `endDate` | — | today | Period end (`YYYY-MM-DD`) |
@@ -222,14 +222,14 @@ Both functions include inline examples showing exactly how.
 | `--top-values` | `topValues` | — | `20` | Popular values per facet |
 | `--out` | `out` | — | current dir | Output directory |
 | `--region` | `region` | — | `us` | Analytics **data-center**: `us` for US-hosted apps, `de` for EU-hosted apps (only change if your Algolia app lives in the EU) |
-| `--field-map` | `fieldMap` | — | — | Path to customer field-map JSON file |
+| `--field-map` | `fieldMap` | — | — | Path to the field-map JSON file (auto-created if missing) |
 | `--sample-record` | `sampleRecord` | — | — | One record OR array of records (auto-discovery) |
 | `--fetch-samples[=n]` | `fetchSamples` | — | — | Pull `n` real records (default 10) from the index via the Search API for auto-discovery (needs search access) |
 | `--ignore-facets` | `ignoreFacets` | — | — | Extra facets to drop, comma-separated (backend/permission facets are dropped automatically) |
 | `--interactive`, `-i` | — | — | — | Force interactive prompts |
 | `--help`, `-h` | — | — | — | Show usage help |
 
-Precedence: **flags > config file > env vars > defaults**. The API key is best supplied via `ALGOLIA_API_KEY` and is never written to a saved config file.
+Precedence: **flags > config file > env vars > defaults**. For shared/CI use, supply the API key via `ALGOLIA_API_KEY`; for local iteration you can cache it in the (git-ignored) config file.
 
 ---
 
@@ -244,7 +244,7 @@ At the top of `transform.generated.js`:
 const POPULAR_VALUES       = { ... };
 const FACET_WEIGHTS        = { ... };
 const FACET_TO_RECORD_PATH = { ... };
-const RECORD_FIELD_MAP     = { ... };  // ← field-map for this client
+const RECORD_FIELD_MAP     = { ... };  // ← field-map for this index
 /*__GENERATED_CONFIG_END__*/
 ```
 
@@ -253,7 +253,7 @@ Only the content between the markers is replaced on re-run. Manual edits outside
 The generated config is **index-specific**, never a hardcoded template:
 
 - `POPULAR_VALUES` / `FACET_WEIGHTS` come straight from this index's analytics.
-- `FACET_TO_RECORD_PATH` is an **identity map** of the facets that were kept (in Algolia a facet's analytics name equals its record attribute name), so it reflects your index rather than any reference client's schema.
+- `FACET_TO_RECORD_PATH` is an **identity map** of the facets that were kept (in Algolia a facet's analytics name equals its record attribute name), so it reflects your index rather than any preset schema.
 - `RECORD_FIELD_MAP` starts from **generic defaults** — only the near-universal fields (`price`, `compare_at_price`, availability) get a best-guess path; everything else defaults to `NONE` until you map it via `--field-map` + `--sample-record`.
 
 ---
@@ -272,23 +272,23 @@ To drop additional facets, pass `--ignore-facets a,b,c` or set `"ignoreFacets": 
 
 ## Sharing across engineers
 
-Commit `generator/` to the shared repo. When you use an alias, everything for a client is grouped under `clients/<alias>/` automatically:
+Commit `generator/` to the shared repo. When you use an alias, everything for an index is grouped under `clients/<alias>/` automatically:
 
 ```
-generator/              ← commit: shared tooling for all clients
+generator/              ← commit: shared tooling, used for every index
   generate.js
   template.js
   field-map.default.json
-  field-aliases.json      ← grows with each new client
+  field-aliases.json      ← grows over time
 
-clients/                ← per-client working files (grouped by alias)
-  groupeld_fr_prod/
-    field-map.json          ← auto-created, reviewed & confirmed by engineers  (commit)
-    sample-records.json     ← fetched from the index                           (usually .gitignore)
-    analytics-snapshot.json ← last run                                         (optional)
-    transform.generated.js  ← the scoring script                              (commit)
+clients/                ← per-index working files (grouped by alias)
+  magento2_prod/
+    field-map.json          ← auto-created, reviewed & confirmed  (commit)
+    sample-records.json     ← fetched from the index              (usually .gitignore)
+    analytics-snapshot.json ← last run                            (optional)
+    transform.generated.js  ← the scoring script                  (commit)
 
-<alias>.config.json     ← per-client settings; git-ignored (may hold an API key)
+<alias>.config.json     ← per-index settings; git-ignored (may hold an API key)
 ```
 
 Field-map files are worth committing (the confirmed mappings are real work). Fetched `sample-records.json` and `*.config.json` are best kept local.

@@ -12,7 +12,7 @@
 //   node generate.js --app-id <APP_ID> --index my_index [options]
 //
 // Required (one of):
-//   --api-key <key>              Algolia Analytics API key
+//   --api-key <key>              Algolia API key with Analytics + Search access
 //   ALGOLIA_API_KEY env var
 //
 // Required:
@@ -572,7 +572,7 @@ Three easy ways to run it:
 Options (flags override config file, which overrides env vars, which override defaults):
   --config <path>            Load settings from a JSON config file
   --app-id <id>              Algolia Application ID          (env ALGOLIA_APP_ID)
-  --api-key <key>            Algolia Analytics API key       (env ALGOLIA_API_KEY)
+  --api-key <key>            API key w/ Analytics + Search    (env ALGOLIA_API_KEY)
   --index <name>             Index to analyse                (env ALGOLIA_INDEX)
   --region <us|de>           Analytics data-center: 'us' for US-hosted apps,
                              'de' for EU-hosted apps         (default us)
@@ -778,7 +778,7 @@ async function runInteractive(opts) {
   }
 
   opts.appId        = await ask("Algolia Application ID", opts.appId);
-  opts.apiKey       = await ask("Analytics API key (blank = use ALGOLIA_API_KEY env)", opts.apiKey, { mask: true });
+  opts.apiKey       = await ask("API key with Analytics + Search access (blank = use ALGOLIA_API_KEY env)", opts.apiKey, { mask: true });
   opts.index        = await ask("Index name", opts.index);
   opts.startDate    = await ask("Start date (YYYY-MM-DD)", opts.startDate);
   opts.endDate      = await ask("End date (YYYY-MM-DD)", opts.endDate);
@@ -834,7 +834,7 @@ async function runInteractive(opts) {
   const defaultConfigPath = path.join(process.cwd(), configFileNameFor(opts._alias || opts.index));
   const relPath = path.relative(process.cwd(), defaultConfigPath) || defaultConfigPath;
   console.log("  Saving your answers to a config file lets you re-run everything later with a single");
-  console.log("  command: ./gen --config <file>  (your API key is never written to it).");
+  console.log("  command: ./gen --config <file>  (git-ignored; you choose whether to cache the API key).");
   const doSave = await askYesNo(`Save these settings to ${relPath}?`, true);
 
   if (doSave) {
