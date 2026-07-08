@@ -283,7 +283,7 @@ To drop additional facets, pass `--ignore-facets a,b,c` or set `"ignoreFacets": 
 
 ## Sharing across engineers
 
-Commit `generator/` to the shared repo. When you use an alias, everything for an index is grouped under `indices/<alias>/` automatically:
+Commit `generator/` to the shared repo — that's the only shared part. Everything the tool produces for a specific index is local and **git-ignored** (it's customer-specific and shouldn't be committed):
 
 ```
 generator/              ← commit: shared tooling, used for every index
@@ -292,15 +292,15 @@ generator/              ← commit: shared tooling, used for every index
   field-map.default.json
   field-aliases.json      ← grows over time
 
-indices/                ← per-index working files (grouped by alias)
+indices/                ← git-ignored: per-index working files (grouped by alias)
   magento2_prod/
-    field-map.json          ← auto-created, reviewed & confirmed  (commit)
-    sample-records.json     ← fetched from the index              (usually .gitignore)
-    analytics-snapshot.json ← last run                            (optional)
-    transform.generated.js  ← the scoring script                  (commit)
+    field-map.json          ← auto-created, reviewed & confirmed
+    sample-records.json     ← fetched from the index
+    analytics-snapshot.json ← last run
+    transform.generated.js  ← the scoring script (deploy from here, don't commit)
 
-local_configs/          ← saved configs; whole folder git-ignored (may hold API keys)
+local_configs/          ← git-ignored: saved configs (may hold API keys)
   magento2_prod.config.json
 ```
 
-Field-map files are worth committing (the confirmed mappings are real work). Fetched `sample-records.json` and everything under `local_configs/` are best kept local.
+Nothing under `indices/` or `local_configs/` is committed. The generated `transform.generated.js` is what you paste/deploy as the Algolia transform for that index; keep it local. If you *want* to preserve a reviewed `field-map.json` in version control, copy it somewhere outside `indices/` and commit that copy deliberately.

@@ -193,14 +193,16 @@ generator/
   package.json
   README.md                Full CLI reference
 
-indices/<alias>/           Per-index working files (grouped by alias)
+indices/<alias>/           Per-index working files — whole folder git-ignored (customer-specific)
   field-map.json
   sample-records.json
   analytics-snapshot.json
-  transform.generated.js
+  transform.generated.js    ← deploy this as the index's transform; don't commit it
 
 local_configs/             Saved configs; whole folder git-ignored (may hold API keys)
   <alias>.config.json
 ```
+
+> Only `generator/` is meant to be committed. Everything the tool generates per index (`indices/`), your saved configs (`local_configs/`), and any stray `transform.generated.js` / `analytics-snapshot.json` are git-ignored.
 
 See `generator/README.md` for the full CLI option reference, field-map format details, and customisation guide.
